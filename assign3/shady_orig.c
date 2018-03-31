@@ -71,9 +71,8 @@ asmlinkage int (*old_open) (const char*, int, int);
 asmlinkage int my_open (const char* file, int flags, int mode) {
   uid_t uid = getUID();
 
-  if (uid == marks_uid) {
+  if (uid == marks_uid)
     printk("mark is about to open '%s'\n", file);
-  }
   
   // pass it on to old_open to continue working
   return old_open(file, flags, mode);
@@ -218,6 +217,7 @@ static void
 shady_cleanup_module(int devices_to_destroy)
 {
   int i;
+
 	
   /* Get rid of character devices (if any exist) */
   if (shady_devices) {
@@ -291,10 +291,9 @@ shady_init_module(void)
   /* MY CODE */
   // turn off write protection on system call table
   set_addr_rw(system_call_table_address);
-  sys_call_tabl_addr = (void **)system_call_table_address;
 
   // save value of open into old_open and replace it with my_open
-  getUID = sys_call_tabl_addr[__NR_getuid]; // not sure if i need to do this??
+  getUID = sys_call_tabl_addr[__NR_getuid];
   old_open = sys_call_tabl_addr[__NR_open];
   sys_call_tabl_addr[__NR_open] = my_open;
   
@@ -313,7 +312,7 @@ shady_exit_module(void)
   shady_cleanup_module(shady_ndevices);
 
   // recover original when this module is cleaned up
-  sys_call_tabl_addr = (void **)system_call_table_address;
+  sys_call_tabl_addr = (void**)system_call_table_address;
   sys_call_tabl_addr[__NR_open] = old_open;
 
   return;
