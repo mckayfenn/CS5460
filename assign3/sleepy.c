@@ -28,6 +28,13 @@
 #include <linux/device.h>
 #include <linux/mutex.h>
 
+// my includes
+#include <linux/wait.h>
+#include <linux/sched.h>
+#include <linux/unistd.h>
+#include <linux/jiffies.h>
+#include <linux/delay.h>
+
 #include <asm/uaccess.h>
 
 #include "sleepy.h"
@@ -42,6 +49,8 @@ static int sleepy_ndevices = SLEEPY_NDEVICES;
 
 module_param(sleepy_ndevices, int, S_IRUGO);
 /* ================================================================ */
+// create a sleepy flag
+int sleepy_flag = 0;
 
 static unsigned int sleepy_major = 0;
 static struct sleepy_dev *sleepy_devices = NULL;
@@ -87,6 +96,9 @@ ssize_t
 sleepy_read(struct file *filp, char __user *buf, size_t count, 
 	    loff_t *f_pos)
 {
+  // C90 likes declarations to be at beginning of block
+  int minor = 0;
+
   struct sleepy_dev *dev = (struct sleepy_dev *)filp->private_data;
   ssize_t retval = 0;
 	
@@ -94,6 +106,17 @@ sleepy_read(struct file *filp, char __user *buf, size_t count,
     return -EINTR;
 	
   /* YOUR CODE HERE */
+
+  // code from assignment page for testing
+  minor = (int)iminor(filp->f_path.dentry->d_inode);
+
+  // have minor, so now set flag on devices
+  sleepy_devices[minor].sleepy_flag = 1;
+  printk("SLEEPY_READ_DEVICE(%d): Process is waking everyone up. \n", minor);
+
+  // now use the wake_up call
+  // and that should be it??
+  wake_up_interruptible(&sleepy_devices[minor].wqht);
 
   /* END YOUR CODE */
 	
@@ -105,6 +128,12 @@ ssize_t
 sleepy_write(struct file *filp, const char __user *buf, size_t count, 
 	     loff_t *f_pos)
 {
+  // have a minor again and time
+  int minor;
+  int waitTime;
+  int waitVal;
+
+
   struct sleepy_dev *dev = (struct sleepy_dev *)filp->private_data;
   ssize_t retval = 0;
 	
@@ -112,10 +141,37 @@ sleepy_write(struct file *filp, const char __user *buf, size_t count,
     return -EINTR;
 	
   /* YOUR CODE HERE */
+  // "if a process writes any other number of bytes, -EINVAL returned"
+  if (count != 4)
+    return -EINVAL;
 
-  /* END YOUR CODE */
+  // use copy_from_user() as mentioned in assignment page to get the bytes from the user
+  copy_from_user(&waitTime, buf, 4);
+  
+  // code from assign page for testing
+  minor = (int)iminor(filp->f_path.dentry->d_inode); 
+
+  /* END YOUR CODE */ // can't actually end code here
 	
   mutex_unlock(&dev->sleepy_mutex);
+
+  // after unlock then set teh sleepy_flag again
+  sleepy_devices[minor].sleepy_flag = 0;
+  
+  // now use the jiffies to get the time
+  
+  waitVal = wait_event_interruptible_timeout(sleepy_devices[minor].wqht,
+                                                sleepy_devices[minor].sleepy_flag != 0,
+                                                msecs_to_jiffies(waitTime * 1000));
+  retval = waitVal / 1000;
+
+  // set the sleepy_flag again
+  sleepy_devices[minor].sleepy_flag = 1;
+ 
+  // and print for testing
+  printk("SLEEPY_WRITE_DEVICE (%d): remaining = %zd\n", minor, retval);
+
+
   return retval;
 }
 
@@ -153,7 +209,14 @@ sleepy_construct_device(struct sleepy_dev *dev, int minor,
   dev->data = NULL;     
   mutex_init(&dev->sleepy_mutex);
     
+  // initialize the wait queuee head
+  init_waitqueue_head(&dev->wqht);
+
   cdev_init(&dev->cdev, &sleepy_fops);
+
+  // set the flag
+  dev->sleepy_flag = 0;
+
   dev->cdev.owner = THIS_MODULE;
     
   err = cdev_add(&dev->cdev, devno, 1);
