@@ -163,7 +163,7 @@ sleepy_write(struct file *filp, const char __user *buf, size_t count,
   waitVal = wait_event_interruptible_timeout(sleepy_devices[minor].wqht,
                                                 sleepy_devices[minor].sleepy_flag != 0,
                                                 msecs_to_jiffies(waitTime * 1000));
-  retval = jiffies_to_msecs(waitVal) / 1000;
+  retval = waitVal / 1000;
 
   // set the sleepy_flag again
   sleepy_devices[minor].sleepy_flag = 1;
