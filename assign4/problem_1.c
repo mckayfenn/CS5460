@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <assert.h>
 
 int num_threads;
 int num_secs;
@@ -11,6 +13,7 @@ volatile int sleep_flag;
 volatile int* tickets;
 volatile int* entering;
 
+int findMax();
 void lock(int);
 void unlock(int);
 void* Thread(void*);
@@ -33,10 +36,6 @@ int main(int argc, char **argv) {
 
   num_threads = strtol(argv[1], NULL, 10);
   num_secs = strtol(argv[2], NULL, 10);
-
-  printf("threads: %d\n", num_threads);
-  printf("seconds: %d\n", num_secs);
-
 
   threads = malloc(num_threads * sizeof(pthread_t));
   info = malloc(num_threads * sizeof(thread_info));
@@ -61,14 +60,82 @@ int main(int argc, char **argv) {
   sleep_flag = 1;
 
   // create all the pthreads and check they are actually created
+  // pass them to the Thread function too
   for (i = 0; i < num_threads; i++) {
     if (pthread_create(&threads[i], NULL, Thread, &info[i]) != 0) {
       fprintf(stderr, "failed to create thread %d\n", i);
       return 1;
     }
-    else
-      printf("created thread: %d", i);
+  }
+
+  // continue running
+  sleep(num_secs);
+  
+  sleep_flag = 0;
+
+  // join threads and print their info
+  for (i = 0; i < num_threads; i++) {
+    if (pthread_join(threads[i], NULL)) {
+      fprintf(stderr, "Thread %d couldn't be joined\n", i);
+      return 1;
+    }
+
+    // print how many times each thread entered the critical dd
+    printf("Thread %d entered critical section %d times.\n", i, (int)(info[i].n));
   }
 
   return 0;
+}
+
+int findMax() {
+  int current_max = 0;
+  int i;
+  for (i = 0; i < num_threads; i++) {
+    if (tickets[i] > current_max)
+      current_max = tickets[i];
+  }
+  return current_max;
+}
+
+void lock(int i) {
+  entering[i] = 1;
+  tickets[i] = 1 + findMax();
+  entering[i] = 0;
+
+  int j;
+  for (j = 0; j < num_threads; j++) {
+    // wait until thread j receives its number:
+    while (entering[j] != 0) { /* nothing */ }
+
+    // wait until all threads with smaller numbers or with the same
+    // number, but with higher priority, finish their work:
+    while ((tickets[j] != 0) && (tickets[j] < tickets[i] || (tickets[j] == tickets[i] && i < j))) { /* nothing */ }
+  }
+}
+
+void unlock(int i) {
+  tickets[i] = 0;
+}
+
+void* Thread(void* info) {
+
+  while (sleep_flag) {
+    int t = ((thread_info*)info)->i;
+    lock(t);
+
+    // critical section
+    (((thread_info*)info)->n)++;
+    assert (in_cs == 0);
+    in_cs++;
+    assert (in_cs == 1);
+    in_cs++;
+    assert (in_cs == 2);
+    in_cs++;
+    assert (in_cs == 3);
+    in_cs = 0;
+    
+    unlock(t);
+  }
+
+  return NULL;
 }
