@@ -3,13 +3,8 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <assert.h>
+#include <sched.h>
 
-
-
-
-/* This is currently just a copy of problem_1.c
- * needs to be modified using sched_yield()
- */
 
 int num_threads;
 int num_secs;
@@ -142,6 +137,10 @@ void* Thread(void* info) {
     in_cs = 0;
     
     unlock(t);
+
+    // for Problem 2
+    // improve performance significantly by using sched_yield()
+    sched_yield();
   }
 
   return NULL;
